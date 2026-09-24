@@ -1,69 +1,80 @@
-import { useParams, Link } from 'react-router-dom';
-import ReviewForm from '../components/ReviewForm';
-import { movies } from '../data/data';
-// TODO ขั้นที่ 4: import { useEffect, useState } from 'react';
-// TODO ขั้นที่ 4: import { getMovie } from '../api/tmdb';
+import { useEffect, useState } from 'react';
+import MovieGrid from '../components/MovieGrid';
+import { getMovies, CACHE_KEY } from '../api/tmdb';
+import { forget } from '../api/cache';
 
-function MovieDetail() {
-  const { id } = useParams();                       // ได้เป็น string เสมอ
+function Movies() {
+  const [query, setQuery] = useState('');          // คำค้น (controlled input) กรองในเครื่อง ไม่ยิง API
+  const [genre, setGenre] = useState('all');       // แนวที่เลือกจากแถบปุ่ม 'all' = ทุกแนว
 
-  // TODO ขั้นที่ 4: เปลี่ยนเป็น state 3 ตัว (movie, status, error) แล้วโหลดด้วย getMovie(id) ใน useEffect
-  const movie = movies.find(m => m.id === Number(id));
-  const status = movie ? 'success' : 'error';
-  const error = movie ? null : new Error('ไม่มีเรื่องนี้ใน data.js');
+  const [movies, setMovies] = useState([]);        // รายการจาก getMovies() (โหลดจริงวันละครั้ง)
+  const [status, setStatus] = useState('loading'); // 'loading' | 'success' | 'error'
+  const [error, setError] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);   // ตัวนับสำหรับปุ่ม "ลองใหม่"
 
-  if (status === 'loading') {
-    return (
-      <div className="mx-auto max-w-4xl animate-pulse px-4 py-10 md:px-6">
-        <div className="flex flex-col gap-8 md:flex-row">
-          <div className="aspect-[2/3] w-48 shrink-0 rounded-xl bg-slate-100" />
-          <div className="flex-1 space-y-3">
-            <div className="h-8 w-2/3 rounded bg-slate-100" />
-            <div className="h-4 w-1/3 rounded bg-slate-100" />
-            <div className="h-24 w-full rounded bg-slate-100" />
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // โหลดตอน component เกิด และทุกครั้งที่กด "ลองใหม่" (reloadKey เปลี่ยน)
+  useEffect(() => {
+    let ignore = false;                            // ธงกันคำตอบเก่ามาทับคำตอบใหม่
 
-  if (status === 'error') {
-    return (
-      <div className="mx-auto max-w-xl px-4 py-20 text-center">
-        <p className="text-lg text-slate-700">ไม่พบหนังเรื่องนี้ 😢</p>
-        <p className="text-sm text-slate-400">{error.message}</p>
-        <Link to="/movies" className="mt-6 inline-block text-sm text-emerald-600 hover:underline">กลับไปหน้าหนังทั้งหมด</Link>
-      </div>
-    );
-  }
+    async function load() {
+      setStatus('loading');
+      try {
+        const list = await getMovies();            // ครั้งแรกของวันยิง API ครั้งถัดไปอ่านจาก localStorage
+        if (!ignore) {
+          setMovies(list);
+          setStatus('success');
+        }
+      } catch (err) {
+        if (!ignore) {
+          setError(err);
+          setStatus('error');
+        }
+      }
+    }
+    load();
+
+    return () => { ignore = true; };               // cleanup: effect รอบเก่าถูกยกเลิก
+  }, [reloadKey]);
+
+  // ค่าที่คำนวณจาก state ไม่ต้องเป็น state เอง: รายชื่อแนวที่มีจริง และรายการหลังกรอง
+  const genres = [...new Set(movies.map(m => m.genre).filter(Boolean))];
+  const q = query.trim().toLowerCase();
+  const shown = movies.filter(m =>
+    (genre === 'all' || m.genre === genre) &&
+    (q === '' || m.title.toLowerCase().includes(q) || (m.titleTh ?? '').toLowerCase().includes(q))
+  );
+
+  const chipClass = (active) =>
+    'rounded-full border px-3 py-1 text-sm transition ' +
+    (active ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-emerald-200 bg-white text-slate-600 hover:bg-emerald-50');
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-10 md:px-6">
-      <Link to="/movies" className="text-sm text-slate-500 hover:text-emerald-600">กลับไปหน้าหนังทั้งหมด</Link>
-
-      <div className="mt-4 flex flex-col gap-8 md:flex-row">
-        {movie.poster ? (
-          <img src={movie.poster} alt={`โปสเตอร์ ${movie.title}`}
-               className="w-48 shrink-0 self-start rounded-xl border border-slate-200" />
-        ) : (
-          <div className="grid aspect-[2/3] w-48 shrink-0 place-items-center rounded-xl bg-slate-100 text-5xl">🎬</div>
-        )}
-
-        <div className="flex-1">
-          <h1 className="text-2xl font-semibold text-slate-900 md:text-3xl">{movie.title}</h1>
-          {movie.titleTh && <p className="mt-1 text-slate-500">{movie.titleTh}</p>}
-          <p className="mt-2 text-sm text-slate-500">
-            {movie.year}{movie.genre && ` | ${movie.genre}`}{movie.rating != null && ` | ⭐ ${movie.rating}`}
+    <div className="mx-auto max-w-5xl px-4 py-10 md:px-6">
+      <div className="mb-4 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-900">หนังทั้งหมด</h1>
+          <p className="text-sm text-slate-500">
+            แหล่งข้อมูล: TMDB (โหลดวันละครั้ง) {status === 'success' && `| พบ ${shown.length} จาก ${movies.length} เรื่อง`}
           </p>
-          <p className="mt-4 leading-relaxed text-slate-700">{movie.detail}</p>
-
-          <div className="mt-8 rounded-xl border border-emerald-100 bg-white p-5">
-            <ReviewForm key={movie.id} movieTitle={movie.title} />
-          </div>
         </div>
+        <input value={query} onChange={(e) => setQuery(e.target.value)}
+               placeholder="พิมพ์ชื่อหนังเพื่อกรอง..."
+               className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100 md:w-72" />
       </div>
+
+      {/* เมนูเลือกแนวหนัง สร้างจากข้อมูลที่มีจริง ไม่ต้องพิมพ์รายชื่อเอง */}
+      <div className="mb-6 flex flex-wrap gap-2">
+        <button onClick={() => setGenre('all')} className={chipClass(genre === 'all')}>ทุกแนว</button>
+        {genres.map(g => (
+          <button key={g} onClick={() => setGenre(g)} className={chipClass(genre === g)}>{g}</button>
+        ))}
+      </div>
+
+      {/* ปุ่มลองใหม่ต้องล้าง cache ก่อน ไม่งั้นจะได้ของเก่าหรือ error เดิมซ้ำ */}
+      <MovieGrid movies={shown} status={status} error={error}
+                 onRetry={() => { forget(CACHE_KEY); setReloadKey(k => k + 1); }} />
     </div>
   );
 }
 
-export default MovieDetail;
+export default Movies;
